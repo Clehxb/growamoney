@@ -72,18 +72,18 @@ local function serverHop()
         local suitableServers = {}
             for _, server in pairs(result.data) do
                 if server.id ~= currentJobId and 
-                server.playing <= 3 and
+                (server.playing or 0) <= 3 and
                 not hasVisitedServer(server.id) and
-                server.maxPlayers == 5 and
-                server.playing >= 0 then
+                (server.maxPlayers or 0) == 5 and
+                (server.playing or 0) >= 0 then
                     table.insert(suitableServers, server)
                 end
             end
         table.sort(suitableServers, function(a, b)
-            if a.playing == b.playing then
+            if (a.playing or 0) == (b.playing or 0) then
                 return (a.ping or 999) < (b.ping or 999)
             end
-            return a.playing < b.playing
+            return (a.playing or 0) < (b.playing or 0)
         end)
         
         if #suitableServers > 0 then
