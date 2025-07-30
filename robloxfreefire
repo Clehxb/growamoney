@@ -1,0 +1,188 @@
+local function isValidVersion()
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    if not LocalPlayer.PlayerGui:FindFirstChild("Version_UI") then
+        return false
+    end
+    local versionUI = LocalPlayer.PlayerGui.Version_UI
+    if not versionUI:FindFirstChild("Version") then
+        return false
+    end
+    local currentVersion = versionUI.Version.Text
+    for _, targetVer in pairs(_G.target_vesion) do
+        if currentVersion == targetVer then
+            return true
+        end
+    end
+    return false
+end
+
+local function loadVisitedServers()
+    local fileName = "visited_servers_" .. game.PlaceId .. ".json"
+    
+    if isfile(fileName) then
+        local success, result = pcall(function()
+            return game:GetService("HttpService"):JSONDecode(readfile(fileName))
+        end)
+        
+        if success and type(result) == "table" then
+            return result
+        end
+    end
+    return {}
+end
+
+local function saveVisitedServer(serverId)
+    local fileName = "visited_servers_" .. game.PlaceId .. ".json"
+    local visitedServers = loadVisitedServers()
+    visitedServers[serverId] = {
+        timestamp = os.time(),
+        visits = (visitedServers[serverId] and visitedServers[serverId].visits or 0) + 1
+    }
+    local currentTime = os.time()
+    for id, data in pairs(visitedServers) do
+        if currentTime - data.timestamp > 2592000 then
+            visitedServers[id] = nil
+        end
+    end
+    pcall(function()
+        writefile(fileName, game:GetService("HttpService"):JSONEncode(visitedServers))
+    end)
+end
+
+local function hasVisitedServer(serverId)
+    local visitedServers = loadVisitedServers()
+    return visitedServers[serverId] ~= nil
+end
+
+local function serverHop()
+    local TeleportService = game:GetService("TeleportService")
+    local HttpService = game:GetService("HttpService")
+    local Players = game:GetService("Players")
+    local placeId = game.PlaceId
+    local currentJobId = game.JobId
+
+    saveVisitedServer(currentJobId)
+    
+    local success, result = pcall(function()
+        return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"))
+    end)
+    
+    if success and result.data then
+        local suitableServers = {}
+            for _, server in pairs(result.data) do
+                if server.id ~= currentJobId and 
+                server.playing <= 3 and
+                not hasVisitedServer(server.id) and
+                server.maxPlayers == 5 and
+                server.playing >= 0 then
+                    table.insert(suitableServers, server)
+                end
+            end
+        table.sort(suitableServers, function(a, b)
+            if a.playing == b.playing then
+                return (a.ping or 999) < (b.ping or 999)
+            end
+            return a.playing < b.playing
+        end)
+        
+        if #suitableServers > 0 then
+            local targetServer = suitableServers[1]
+            TeleportService:TeleportToPlaceInstance(placeId, targetServer.id, Players.LocalPlayer)
+            local retryCount = 0
+            local teleportConnection
+            teleportConnection = TeleportService.TeleportInitFailed:Connect(function(player, teleportResult, errorMessage)
+                if player == Players.LocalPlayer then
+                    retryCount = retryCount + 1
+                    if tostring(teleportResult):find("772") or tostring(errorMessage):lower():find("full") then
+                        teleportConnection:Disconnect()
+                        saveVisitedServer(targetServer.id)
+                        wait(2)
+                        serverHop()
+                        return
+                    end
+                    
+                    wait(5)
+                    local success, error = pcall(function()
+                        TeleportService:TeleportToPlaceInstance(placeId, targetServer.id, Players.LocalPlayer)
+                    end)
+                    
+                    if not success then
+                        teleportConnection:Disconnect()
+                        wait(3)
+                        serverHop()
+                    end
+                end
+            end)
+            return
+        else
+            local fileName = "visited_servers_" .. game.PlaceId .. ".json"
+            if isfile(fileName) then
+                delfile(fileName)
+                wait(2)
+                serverHop()
+                return
+            end
+        end
+    else
+        wait(5)
+        serverHop()
+        return
+    end
+
+    local randomTeleportConnection
+    randomTeleportConnection = TeleportService.TeleportInitFailed:Connect(function(player, teleportResult, errorMessage)
+        if player == Players.LocalPlayer then
+            if tostring(teleportResult):find("772") or tostring(errorMessage):lower():find("full") then
+                randomTeleportConnection:Disconnect()
+                wait(3)
+                serverHop()
+                return
+            end
+            
+            wait(5)
+            
+            local success, error = pcall(function()
+                TeleportService:Teleport(placeId, Players.LocalPlayer)
+            end)
+            
+            if not success then
+                wait(10)
+                serverHop()
+            end
+        end
+    end)
+    TeleportService:Teleport(placeId, Players.LocalPlayer)
+end
+
+spawn(function()
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    repeat wait(1) until LocalPlayer.Character
+    local waitTime = 0
+    repeat 
+        wait(1)
+        waitTime = waitTime + 1
+    until LocalPlayer.PlayerGui:FindFirstChild("Version_UI") or waitTime >= 30
+    
+    if waitTime >= 30 then
+        wait(2)
+        serverHop()
+        return
+    end
+    saveVisitedServer(game.JobId)
+    if not isValidVersion() then
+        wait(2)
+        serverHop()
+    else
+        spawn(function()
+            wait(30)
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                local humanoid = LocalPlayer.Character.Humanoid
+                if humanoid.Health <= 0 or not LocalPlayer.Character.Parent then
+                    serverHop()
+                end
+            end
+        end)
+    end
+end)
