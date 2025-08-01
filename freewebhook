@@ -1,0 +1,67 @@
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
+local backpack = player:WaitForChild("Backpack")
+WEBHOOK_URL = _G.webhookurl
+local function sendWebhook(toolName)
+    local data = {
+        embeds = {{
+            title = "🦊 Kitsune Chest Detected",
+            description = "Amount: **" .. toolName .. "**",
+            color = 16711680,
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+            footer = {
+                text = "Player: " .. player.Name
+            }
+        }}
+    }
+    
+    pcall(function()
+        return http_request({
+            Url = WEBHOOK_URL,
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json"
+            },
+            Body = HttpService:JSONEncode(data)
+        })
+    end)
+end
+
+local function checkForKitsuneChestTools()
+    local foundTools = {}
+    
+    for _, tool in pairs(backpack:GetChildren()) do
+        if tool:IsA("Tool") and string.find(tool.Name, "Kitsune Chest") then
+            table.insert(foundTools, tool.Name)
+        end
+    end
+    
+    if player.Character then
+        for _, tool in pairs(player.Character:GetChildren()) do
+            if tool:IsA("Tool") and string.find(tool.Name, "Kitsune Chest") then
+                table.insert(foundTools, tool.Name)
+            end
+        end
+    end
+    
+    for _, toolName in pairs(foundTools) do
+        sendWebhook(toolName)
+        wait(0.5)
+    end
+end
+
+spawn(function()
+    while _G.enable do
+        checkForKitsuneChestTools()
+        wait(_G.delay)
+    end
+end)
+
+backpack.ChildAdded:Connect(function(tool)
+    if tool:IsA("Tool") and string.find(tool.Name, "Kitsune Chest") then
+        wait(1)
+        sendWebhook(tool.Name)
+    end
+end)
